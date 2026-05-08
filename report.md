@@ -2,6 +2,7 @@
 
 **Author:** Ali S. (NetID `als4081`) · CS 2050 — High Performance Computing
 **Project type:** Final project · Spring 2026
+**Live project site:** <https://saffariniali.github.io/2050-site/>
 
 > *"Spots, stripes, mazes — every pattern is just the same nine numbers on a grid, repeated a few thousand times."*
 
@@ -84,7 +85,7 @@ The hybrid `mpi_hybrid` build (`-DHYBRID_BUILD`) compiles the *same source* with
 
 ### 3.4 CUDA (Part 4)
 
-Each cell of the new grid maps to one CUDA thread, organised as 16×16 thread blocks (one warp wide, the floor NVIDIA recommends for hiding memory latency). The single most important optimisation is **shared-memory tiling**: each block cooperatively loads its 18×18 input tile (interior + 1-cell halo) into ≈5 KB of `__shared__` memory before computing the stencil, dropping per-cell global-memory traffic from ≈9 doubles to ≈1.1 doubles. Periodic boundaries fold into the halo-load phase via a `wrap_idx` device helper. CUDA events time the kernel so I/O does not pollute the measurement. The same binary runs a single-threaded CPU reference and prints max-abs-diff; with no `--use_fast_math` it is $5\times10^{-16}$.
+Each cell of the new grid maps to one CUDA thread, organised as 16×16 thread blocks (256 threads = 8 warps per block, a sensible floor for hiding memory latency on this kernel). The single most important optimisation is **shared-memory tiling**: each block cooperatively loads its 18×18 input tile (interior + 1-cell halo) into ≈5 KB of `__shared__` memory before computing the stencil, dropping per-cell global-memory traffic from ≈9 doubles to ≈1.1 doubles. Periodic boundaries fold into the halo-load phase via a `wrap_idx` device helper. CUDA events time the kernel so I/O does not pollute the measurement. The same binary runs a single-threaded CPU reference and prints max-abs-diff; with no `--use_fast_math` it is $5\times10^{-16}$.
 
 ### 3.5 Numba and JAX (Part 5)
 
@@ -96,7 +97,7 @@ Two Python implementations at different points on the abstraction spectrum. **Nu
 | abstraction            | imperative + SIMD   | imperative + LLVM SIMD | functional, whole-array |
 | build / ramp-up        | one `g++` call      | first-call JIT (≈5 s)  | first-call XLA (≈3 s)  |
 | portability            | tied to compiler    | runs anywhere CPython does | CPU / NVIDIA / TPU from one source |
-| GFLOP/s @ 8 cores      | **35.8**            | **55.5** (LLVM beats g++) | 9 (CPU) — `roll` chain heavy |
+| GFLOP/s @ 8 cores      | **≈35**             | **≈57** (LLVM beats g++) | 9 (CPU) — `roll` chain heavy |
 
 **Table 2.** Productivity-vs-control trade-offs across the three Python-friendly options.
 
@@ -104,11 +105,11 @@ The mechanism behind Table 2's headline — Numba *beats* C++/OpenMP — is wort
 
 ### 3.6 Beyond the rubric
 
-Single-source MPI / MPI+OpenMP via `-DHYBRID_BUILD` (so §4.6 is apples-to-apples); two-layer verification (Layer A checksums + Layer B analytical suite); OpenMP schedule-policy ablation (§4.7); JAX bonus; two GPU profilers + `compute-sanitizer`; a live in-browser simulator (`site/index.html`, ≈50 lines of JS).
+Single-source MPI / MPI+OpenMP via `-DHYBRID_BUILD` (so §4.6 is apples-to-apples); two-layer verification (Layer A checksums + Layer B analytical suite); OpenMP schedule-policy ablation (§4.7); JAX bonus; two GPU profilers + `compute-sanitizer`; a **live project site at <https://saffariniali.github.io/2050-site/>** that ports the same 9-point stencil to ≈50 lines of JavaScript and lets a reader watch the patterns form interactively (`site/index.html` is the source).
 
 ## 4. Results
 
-All numbers come from one sweep on the Harvard CS-2050 cluster: two-socket Cascade Lake nodes (48 cores, 96 GB RAM) for CPU work, the GPU partition for CUDA (NVIDIA A10G, 24 GB GDDR6, ≈600 GB/s, or L4 with 48 MB L2 — both land at the same 357 GFLOP/s on this kernel), and AWS OpenMPI 4.1.7 launched with `srun --mpi=pmix` for multi-node MPI.
+All numbers come from one sweep on the Harvard CS-2050 cluster. The CPU nodes are single-socket Intel Xeon Platinum 8275CL (Cascade Lake) with **24 physical cores + 2-way SMT (48 logical CPUs), 1 NUMA node, 96 GB RAM**; OpenMP runs are pinned with `OMP_PLACES=cores` and `OMP_PROC_BIND=close`, so every thread occupies a distinct physical core. GPU runs use the GPU partition: **NVIDIA L4** (58 SMs, 22 GB GDDR6, ≈300 GB/s peak DRAM, **48 MB L2 cache**), confirmed in every CUDA log (`Device: NVIDIA L4   SMs: 58   Memory: 22.0 GB`). Multi-node MPI uses AWS OpenMPI 4.1.7 launched with `srun --mpi=pmix` over the cluster's inter-node fabric.
 
 ### 4.1 Visualisation gallery
 
@@ -126,7 +127,7 @@ All numbers come from one sweep on the Harvard CS-2050 cluster: two-socket Casca
 
 **Figure 2.** Speedup vs. worker count on a fixed $512^2$ grid at 5000 steps.
 
-Figure 2 shows OpenMP scaling near-linearly through 8 threads (speedup **7.0×**, $T_8 = 1.95$ s), then **saturating** at 16 threads (2.22 s — *slightly worse* than 8). This is the canonical memory-bandwidth wall: extra threads only intensify cache/NUMA pressure without bringing more DRAM bandwidth. **MPI scales worse**, not better: 16 ranks (8.4 s) is *slower* than 8 ranks (6.7 s) because the 16-rank case spans both nodes and the per-step 8-direction halo exchange now hits the network. **Numba** matches or beats C++/OpenMP through 8 threads (1.23 s @ 8t, faster than C++) before saturating at the same wall.
+Figure 2 shows OpenMP scaling near-linearly through 8 threads (speedup **7.0×**, $T_8 = 1.95$ s), then *regressing* at 16 threads (2.22 s — actually *slower* than 8). At first glance "more cores → slower" is counterintuitive, but on a single-socket node with all threads pinned to physical cores, this is the canonical signature of a memory-bound kernel that has already saturated its useful per-thread share of DRAM bandwidth. Two concrete mechanisms drive the regression: (i) **memory-controller request-queue contention** — 8 threads already deliver ≈35 GFLOP/s, ≈50 % of the analytical STREAM ceiling and close to the practical achievable peak for any stencil on this socket; the next 8 threads bring no additional bandwidth, only more in-flight requests competing for a finite outstanding-load queue; (ii) **shared-L3 contention plus a larger end-of-loop barrier** — 16 working sets evict each other from the ≈36 MB shared L3, and every `#pragma omp parallel for` waits for the slowest thread (slowest of 16 is statistically worse than slowest of 8 under any noise model, especially under AWS virtualisation). The net effect is a small but reproducible regression — *not* a pathology, just a kernel that has run out of bandwidth headroom and is now paying overhead-only costs to add cores. The corollary: 16 threads could only be *faster* on a kernel with higher arithmetic intensity than this one. **MPI scales worse**, not better, for a related reason amplified by the network: 16 ranks (8.4 s) is *slower* than 8 ranks (6.7 s) because the 16-rank case spans both nodes and the per-step 8-direction halo exchange now traverses the inter-node fabric rather than shared memory. **Numba** matches or beats C++/OpenMP through 8 threads (1.18 s @ 8t, faster than C++) before hitting the same single-socket bandwidth wall and regressing at 16 (1.41 s).
 
 ### 4.3 Weak scaling
 
@@ -146,7 +147,7 @@ $$
 \text{AI} = \frac{52 \text{ FLOP/cell}}{(9 \text{ reads} + 2 \text{ writes}) \times 8 \text{ B}} \approx 0.59 \text{ FLOP/byte}.
 $$
 
-A Cascade Lake socket sustains ≈120 GB/s STREAM bandwidth, so the **CPU bandwidth ceiling** is $0.59 \times 120 \approx 71$ GFLOP/s. The A10G (≈600 GB/s GDDR6) ceiling is $\approx 354$ GFLOP/s.
+A Cascade Lake socket sustains ≈120 GB/s STREAM bandwidth, so the **CPU DRAM ceiling** is $0.59 \times 120 \approx 71$ GFLOP/s. The L4's ≈300 GB/s GDDR6 gives a naïve **GPU DRAM ceiling** of $0.59 \times 300 \approx 177$ GFLOP/s — but the L4 also has a **48 MB L2 cache**, which is large enough to hold the entire $1024^2 \times 8 \text{ B} \times 2 \text{ fields} \approx 16$ MB working set with margin to spare. When the working set fits in L2, the relevant ceiling is the L2-bandwidth ceiling (typically several × the DRAM number), not the DRAM ceiling.
 
 <p align="center">
   <img src="figures/roofline.png" alt="Achieved GFLOP/s vs theoretical bandwidth ceilings" width="600"/>
@@ -154,7 +155,7 @@ A Cascade Lake socket sustains ≈120 GB/s STREAM bandwidth, so the **CPU bandwi
 
 **Figure 4.** Achieved GFLOP/s vs. analytical bandwidth ceilings.
 
-Figure 4 plots achieved throughput against those ceilings. OpenMP at 8 threads tops out at **35.8 GFLOP/s (≈ 50 % of the CPU ceiling)**, then refuses to budge. CUDA hits **357 GFLOP/s at $N=1024$ — essentially the entire A10G bandwidth ceiling**: the 16×16 shared-memory tile reduces global-memory traffic per cell to almost the write-only minimum. Numba reaches 55 GFLOP/s at 8 threads — *above* OpenMP's asymptote — because LLVM emits tighter inner-loop SIMD than g++.
+Figure 4 plots achieved throughput against those ceilings. OpenMP at 8 threads tops out at **≈35 GFLOP/s (≈ 50 % of the CPU DRAM ceiling)**, then refuses to budge. CUDA hits **357 GFLOP/s at $N=1024$ — *2× above* the L4's naïve DRAM ceiling**: the 16 MB working set fits comfortably in the 48 MB L2, so most of the kernel's load traffic is served from L2 rather than DRAM, and the 16×16 shared-memory tile further reduces what little does go to L1. The kernel is therefore L2-bandwidth-bound (and FP64-pipeline-bound at small $N$, see §4.10), not DRAM-bandwidth-bound — exceeding the DRAM ceiling is the *expected* outcome of a working set that lives entirely in cache. Numba reaches ≈57 GFLOP/s at 8 threads — *above* OpenMP's asymptote — because LLVM emits tighter inner-loop SIMD than g++.
 
 ### 4.5 CPU vs GPU comparison
 
@@ -164,11 +165,11 @@ Figure 4 plots achieved throughput against those ceilings. OpenMP at 8 threads t
 
 **Figure 5.** Time to compute 5000 steps of a $512^2$ grid.
 
-Figure 5 visualises the headline gap between paradigms at $N=512$. Serial → OpenMP-8 delivers a **5.6×** reduction (10.9 s → 1.95 s). Numba-8 beats OpenMP-8 by **37 %** (1.23 s vs. 1.95 s) thanks to LLVM vectorisation. CUDA on a single A10G runs the same problem in 0.20 s — **9.7× faster than OpenMP-8** and 6.0× faster than the very best CPU configuration (Numba-8).
+Figure 5 visualises the headline gap between paradigms at $N=512$. Serial → OpenMP-8 delivers a **5.6×** reduction (10.9 s → 1.95 s). Numba-8 beats OpenMP-8 by **40 %** (1.18 s vs. 1.95 s) thanks to LLVM vectorisation. CUDA on a single L4 runs the same problem in 0.20 s — **9.7× faster than OpenMP-8** and 5.9× faster than the very best CPU configuration (Numba-8).
 
 ### 4.6 Cross-paradigm speedup across all grid sizes
 
-The single number that best summarises the project is the speedup of every paradigm against serial across every grid size. Table 3 collects matched-step gallery runs for each implementation; Figure 6 plots the same data as grouped bars.
+The single number that best summarises the project is the speedup of every paradigm against serial across every grid size. Table 3 collects matched-step gallery runs for each implementation; Figure 6 plots the same data as grouped bars. We compare at **8 workers per paradigm** because that is the saturation point established in §4.2 — OpenMP at 16 threads is *slower* than 8 (2.22 s vs. 1.95 s on $512^2$) for the single-socket bandwidth + turbo + L3-contention reasons unpacked there, Numba behaves the same way, and 16-rank MPI crosses the node boundary onto Ethernet (a cliff that §4.7 / Figure 7 characterises in detail with both pure-MPI and MPI+OpenMP hybrid configurations from $(16{\times}1)$ through $(1{\times}16)$). The cross-paradigm comparison here therefore reflects the *best* setting for each CPU paradigm; 16-worker numbers are the §4.2 strong-scaling and §4.7 hybrid-ablation stories.
 
 | method     | 256² (20k steps)  | 512² (5k steps)  | 1024² (2k steps) |
 |------------|-------------------|------------------|------------------|
@@ -176,7 +177,7 @@ The single number that best summarises the project is the speedup of every parad
 | OpenMP-8t  |  1.73 s — **6.15×** |  1.85 s — **5.89×** |  3.38 s — **5.69×** |
 | MPI-8 ranks | 23.97 s — **0.44×** |  6.57 s — **1.66×** |  3.69 s — **5.20×** |
 | Numba-8t   |  1.19 s — **8.93×** |  1.18 s — **9.23×** |  2.00 s — **9.62×** |
-| **CUDA (A10G)** | **0.53 s — 20.12×** | **0.51 s — 21.41×** | **0.71 s — 26.88×** |
+| **CUDA (L4)** | **0.53 s — 20.12×** | **0.51 s — 21.41×** | **0.71 s — 26.88×** |
 
 **Table 3.** Wall time and speedup vs. serial for every paradigm at every grid size. Step counts are matched to keep total work comparable across rows; speedups are computed as $T_\text{serial}/T_\text{parallel}$ at the same grid + steps. *Wall time is preset-independent* — the kernel's FLOP count depends only on grid size and step count, not on $(F, k)$, so the same numbers apply to all four presets shown in Figure 1; only the resulting pattern (spots / stripes / coral / maze) changes.
 
@@ -186,7 +187,7 @@ The single number that best summarises the project is the speedup of every parad
 
 **Figure 6.** Speedup vs. serial for OpenMP, MPI, Numba, and CUDA across the three grid sizes. Each cluster of bars is one paradigm; the three bars within a cluster are the three grid sizes. The same plot applies to all four $(F, k)$ presets — the stencil's FLOP count is preset-independent — so this single figure characterises the speedup behaviour across the entire spots / stripes / coral / maze family shown in Figure 1.
 
-Three things in Table 3 / Figure 6 are striking. **(1) CUDA scales *up* with the grid** — speedup grows from 20.1× at $N=256$ to **26.9× at $N=1024$** because the larger grid amortises the fixed launch overhead (§4.10) and pushes the kernel into the bandwidth-bound regime where the A10G's 600 GB/s pulls away from the CPU socket's 120 GB/s. **(2) MPI is the inverse story:** at $N=256$ the per-step inter-node latency dominates and MPI is **2.3× *slower* than serial** (0.44× speedup); by $N=1024$ each rank's compute amortises the latency and MPI catches OpenMP at 5.20×. This is the same physics as §4.7's hybrid ablation, observed across grid size instead of rank topology. **(3) Numba is consistently the best CPU paradigm** — 8.9–9.6× across all sizes, beating C++/OpenMP at every grid because LLVM's auto-vectoriser emits a tighter inner-loop SIMD schedule than g++ on this kernel.
+Three things in Table 3 / Figure 6 are striking. **(1) CUDA scales *up* with the grid** — speedup grows from 20.1× at $N=256$ to **26.9× at $N=1024$** because the larger grid amortises the fixed launch overhead (§4.10) and the working set still fits in the L4's 48 MB L2, so the kernel runs at L2-bandwidth speed rather than the CPU socket's much slower DRAM-bandwidth speed. **(2) MPI is the inverse story:** at $N=256$ the per-step inter-node latency dominates and MPI is **2.3× *slower* than serial** (0.44× speedup); by $N=1024$ each rank's compute amortises the latency and MPI catches OpenMP at 5.20×. This is the same physics as §4.7's hybrid ablation, observed across grid size instead of rank topology. **(3) Numba is consistently the best CPU paradigm** — 8.9–9.6× across all sizes, beating C++/OpenMP at every grid because LLVM's auto-vectoriser emits a tighter inner-loop SIMD schedule than g++ on this kernel.
 
 ### 4.7 MPI vs MPI+OpenMP ablation
 
@@ -196,9 +197,9 @@ Three things in Table 3 / Figure 6 are striking. **(1) CUDA scales *up* with the
 
 **Figure 7.** Hybrid ablation at fixed total cores = 16.
 
-Figure 7 walks the (ranks × threads/rank) split from $(16{\times}1)$ — pure MPI — to $(1{\times}16)$ — pure OpenMP. The **pure-OpenMP point wins by ≈ 5×** (1.6 s vs. 8.4 s) because the 16-rank pure-MPI case crosses the node boundary and its halo exchanges land on TCP/Ethernet.
+Figure 7 walks the (ranks × threads/rank) split from $(16{\times}1)$ — pure MPI — to $(1{\times}16)$ — pure OpenMP. The **pure-OpenMP point wins by ≈ 5×** (1.6 s vs. 8.4 s) because the 16-rank pure-MPI case crosses the node boundary and its halo exchanges traverse the inter-node fabric instead of shared memory.
 
-The arithmetic that makes the cliff inevitable: at $512^2$ on a $4\times4$ rank grid, each rank owns $128\times128$ cells. Per timestep it does ≈8.5 M FLOP of compute (a few hundred µs even on slow nodes) and exchanges $128\times8 = 1024$ doubles per direction across 8 directions, ≈8 KB total. At Ethernet ≈50 µs RTT per `MPI_Sendrecv`, eight sendrecvs cost ≈400 µs per step — **≈2 s across 5000 steps**, comparable to the entire OpenMP-8 run. The lesson is the inverse of the project plan's prediction: at this grid size, network traffic is more expensive than coherent-cache contention. MPI begins to win only once each rank's compute volume amortises that fixed per-step latency cost (the weak-scaling case at $N=1024$, also visible in Table 3 / Figure 6).
+The arithmetic that makes the cliff inevitable: at $512^2$ on a $4\times4$ rank grid, each rank owns $128\times128 = 16384$ cells. Per timestep it does $52 \times 16384 \approx 0.85$ M FLOP of compute (a few hundred µs at this kernel's per-rank GFLOP/s) and exchanges 128 doubles per direction × 8 directions = 1024 doubles ≈ 8 KB total across the inter-node fabric. At ≈50 µs round-trip per `MPI_Sendrecv` (a conservative upper bound for the cluster's interconnect — could be lower if EFA is in use, in which case the cliff is slightly shallower but the qualitative story holds), eight sendrecvs cost ≈400 µs per step — **≈2 s across 5000 steps**, comparable to the entire OpenMP-8 run. The lesson is the inverse of the project plan's prediction: at this grid size, network traffic is more expensive than coherent-cache contention. MPI begins to win only once each rank's compute volume amortises that fixed per-step latency cost (the weak-scaling case at $N=1024$, also visible in Table 3 / Figure 6).
 
 ### 4.8 OpenMP schedule-policy ablation
 
@@ -252,7 +253,7 @@ The CPU-side roofline tells us *what* ceiling to chase; Nsight Compute tells us 
 
 Three readings tie Table 6 back to the §3.4 design choices.
 
-**(1) The kernel is FP64-pipeline-bound at small $N$, bandwidth-bound at large $N$.** At $256^2$ the ≈1 MB working set fits in L2, so the kernel re-issues FP64 operations faster than DRAM ever has to be touched (66.5 % FP64 vs. 6.6 % L1/TEX hit rate). The bandwidth ceiling becomes binding only at $N=1024$, where the working set blows past L2 and we measure 357 GFLOP/s ≈ 100 % of the A10G ceiling (Figure 4) — the right place to be at the size the project actually grades on.
+**(1) The kernel is FP64-pipeline-bound at small $N$, L2-bandwidth-bound at large $N$.** At $256^2$ the ≈1 MB working set fits trivially in L2, so the kernel re-issues FP64 operations faster than DRAM ever has to be touched (66.5 % FP64 vs. 6.6 % L1/TEX hit rate). At $N=1024$ the ≈16 MB working set *still* fits in the L4's 48 MB L2 with margin, which is why we measure 357 GFLOP/s — about 2× the naïve DRAM ceiling. This isn't a contradiction of roofline analysis, it's roofline analysis applied to the *correct* memory tier: when the working set is L2-resident, the binding bandwidth is L2's, not DRAM's.
 
 **(2) The shared-memory tile is doing exactly its job.** Zero bank conflicts means the 18×18 layout is striped across the 32 banks without warp collisions — every shared load completes in one cycle. The low 6.6 % L1/TEX hit rate is good news, not bad: `__shared__` catches the reuse before L1 sees it, so L1 mostly fields cold first-touch loads. A high L1 hit rate would mean the tile is too small.
 
@@ -278,11 +279,11 @@ Every figure in this report is regenerated from one command on a fresh checkout:
 
 Gray-Scott is a small algorithm with a big lesson. In fewer than 200 lines of C++ per paradigm it touches every concern modern HPC manages: NUMA-aware allocation, halo exchange, shared-memory tiling, FMA reordering, and the arithmetic-intensity ceiling. Three findings inverted the project plan's predictions:
 
-1. **The CUDA kernel hits the bandwidth ceiling almost exactly.** At $N=1024$ the GPU sustains 357 GFLOP/s — within rounding of the analytical $0.59 \times 600 \approx 354$ GFLOP/s on the A10G. Nsight Compute confirms zero bank conflicts; further GPU improvement would require temporal blocking (fusing several timesteps inside one tile), not micro-optimisation of the existing kernel.
+1. **The CUDA kernel runs above the DRAM ceiling because the working set fits in L2.** At $N=1024$ the GPU sustains 357 GFLOP/s — about 2× the naïve $0.59 \times 300 \approx 177$ GFLOP/s ceiling implied by the L4's ≈300 GB/s GDDR6 alone. The reconciliation is that the L4 has a 48 MB L2 cache, and the $1024^2$ working set is only ≈16 MB; the kernel therefore runs at L2-bandwidth speed rather than DRAM-bandwidth speed, with the shared-memory tile catching the remaining hot reuse. Nsight Compute confirms zero bank conflicts; further improvement would require temporal blocking (fusing several timesteps inside one tile), not micro-optimisation of the existing kernel.
 
 2. **Pure OpenMP beats both pure MPI and hybrid configurations on this grid.** The $(1{\times}16)$ point clears the 16-rank pure-MPI configuration by 5× because 16 ranks split across two nodes pay an inter-node latency on every one of the 8 halo sendrecvs every timestep, and that latency overwhelms the per-rank compute volume. MPI starts winning only once each rank's compute amortises that fixed cost (the weak-scaling regime).
 
-3. **Numba was the most surprising data point of the project.** A 25-line `@njit` Python kernel reached 55 GFLOP/s at 8 threads — *above* the C++/OpenMP build at the same thread count (1.23 s vs. 1.95 s). VTune shows the C++ run already spending 92.6 % of its time inside the stencil, so there is little for the threading runtime to reclaim — Numba simply emits a tighter inner loop. For one-off scientific stencils, modern Python+JIT is competitive with hand-written C+OpenMP at the cost of seconds of JIT compile.
+3. **Numba was the most surprising data point of the project.** A 25-line `@njit` Python kernel reached ≈57 GFLOP/s at 8 threads — *above* the C++/OpenMP build at the same thread count (1.18 s vs. 1.95 s, a 40 % win). VTune shows the C++ run already spending 92.6 % of its time inside the stencil, so there is little for the threading runtime to reclaim — Numba simply emits a tighter inner loop. For one-off scientific stencils, modern Python+JIT is competitive with hand-written C+OpenMP at the cost of seconds of JIT compile.
 
 Verification, finally, came almost free. Serial / OpenMP / MPI all produce **bit-identical FNV-1a checksums** at three grid sizes regardless of thread count, rank count, or rank-grid topology. CUDA, Numba, and JAX produce different bit patterns at the $10^{-15}$ floor because LLVM/NVCC/XLA reassociate or fuse FMA where g++ does not — visually identical, qualitatively identical patterns, just rounded differently in the last bit. The standalone `verify/` suite added five analytical checks against ground truth, all PASS.
 
