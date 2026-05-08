@@ -96,7 +96,7 @@
 
   <section>
     <p class="now-running">
-      Now running: <span class="what" id="caption-method">CUDA</span> · pattern <span class="what" id="caption-preset">spots</span> · grid <span class="what" id="caption-grid">512²</span>
+      Now running: <span class="what" id="caption-method">CUDA</span> · pattern <span class="what" id="caption-preset">stripes</span> · grid <span class="what" id="caption-grid">512²</span>
     </p>
 
     <div class="sim">
@@ -116,10 +116,10 @@
         <div class="picker">
           <div class="label">Pattern <span class="hint">— Gray-Scott (F, k) preset</span></div>
           <div class="opts" id="preset-picker">
-            <button class="active" data-preset="spots">spots</button>
-            <button data-preset="stripes">stripes</button>
-            <button data-preset="coral">coral</button>
+            <button class="active" data-preset="stripes">stripes</button>
             <button data-preset="maze">maze</button>
+            <button data-preset="coral">coral</button>
+            <button data-preset="spots">spots</button>
           </div>
         </div>
 
@@ -304,7 +304,7 @@
   //  State
   // ----------------------------------------------------------
   let methodKey = 'cuda';
-  let presetKey = 'spots';
+  let presetKey = 'stripes';
   let gridKey = '512';
   let N = GRIDS[gridKey].internalN;
   let preset = PRESETS[presetKey];
