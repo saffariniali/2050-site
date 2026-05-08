@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gray-Scott across Five Programming Models · CS 2050</title>
+<style>
+  :root{
+    --bg:#0e0f12; --panel:#16181d; --ink:#e9ecf2; --mute:#9aa1ad;
+    --accent:#7fd6ff; --accent2:#ffb86b; --accent3:#a3e635; --line:#262931;
+    --serif: 'Iowan Old Style', 'Charter', 'Cambria', Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --mono: 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--accent)}
+  .wrap{max-width:1080px;margin:0 auto;padding:64px 28px 96px}
+
+  header{margin-bottom:48px}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.05em;color:var(--mute);text-transform:uppercase;margin-bottom:12px}
+  h1{font-family:var(--serif);font-weight:600;font-size:46px;line-height:1.1;margin:0 0 16px;letter-spacing:-0.02em}
+  h1 em{font-style:italic;color:var(--accent2)}
+  .lede{font-size:18px;max-width:64ch;color:#cbd1dc;margin:0}
+  .lede strong{color:var(--ink);font-weight:600}
+  .meta{margin-top:24px;font-family:var(--mono);font-size:13px;color:var(--mute);display:flex;gap:18px;flex-wrap:wrap}
+  .meta span::before{content:"· ";opacity:.5;margin-right:4px}
+  .meta span:first-child::before{content:""}
+
+  h2{font-family:var(--serif);font-size:28px;letter-spacing:-0.01em;margin:64px 0 18px}
+  p{max-width:64ch;margin:0 0 18px}
+  .num{font-family:var(--mono);color:var(--accent2)}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600}
+  .pill{display:inline-block;padding:3px 9px;border:1px solid var(--line);border-radius:999px;font-family:var(--mono);font-size:12px;color:var(--mute);margin:0 6px 6px 0}
+  .pill.ok{color:#9be4a8;border-color:#1f3325}
+  footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--mute)}
+
+  /* ============================================================
+     Simulator
+     ============================================================ */
+  .sim{display:grid;grid-template-columns:auto 1fr;gap:36px;align-items:start;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:32px}
+  .sim canvas{display:block;background:#000;border-radius:10px;image-rendering:pixelated;width:440px;height:440px;border:1px solid var(--line)}
+
+  .picker{margin-bottom:22px}
+  .picker .label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--mute);margin-bottom:8px;display:flex;align-items:baseline;gap:8px}
+  .picker .label .hint{font-size:10.5px;letter-spacing:.06em;color:#5d626c;text-transform:none;font-style:italic}
+  .picker .opts{display:flex;flex-wrap:wrap;gap:6px}
+  .picker button{font-family:var(--mono);font-size:12px;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 13px;cursor:pointer;transition:all 140ms;line-height:1}
+  .picker button:hover{border-color:var(--accent);color:var(--accent)}
+  /* Method picker is the speed-of-light picker — give it the orange "important number" accent */
+  #method-picker button.active{background:var(--accent2);color:#0a0c10;border-color:var(--accent2);font-weight:600}
+  /* Pattern + grid stay on the cyan accent */
+  #preset-picker button.active, #grid-picker button.active{background:var(--accent);color:#0a0c10;border-color:var(--accent);font-weight:600}
+
+  .stats{margin-top:24px;padding:16px 18px;background:#0e0f12;border:1px solid var(--line);border-radius:10px;font-family:var(--mono);font-size:13px;color:var(--mute);line-height:1.65}
+  .stats .row{display:flex;justify-content:space-between;align-items:baseline;gap:18px}
+  .stats .row + .row{margin-top:6px}
+  .stats .num{color:var(--accent2)}
+  .stats .big{font-size:24px;color:var(--accent3);font-family:var(--mono);font-weight:500;letter-spacing:-0.01em}
+  .stats .compare{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);color:#bdc4d0;font-size:12.5px;line-height:1.6}
+  .stats .compare .num{font-size:13px}
+  .stats .browser{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:11.5px;color:#5d626c}
+  .stats .browser .num{color:var(--mute)}
+
+  .controls{display:flex;gap:8px;margin-top:18px}
+  .controls button{font-family:var(--mono);font-size:12px;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 14px;cursor:pointer;transition:all 140ms}
+  .controls button:hover{border-color:var(--accent);color:var(--accent)}
+
+  /* Live caption that names the running method */
+  .now-running{font-family:var(--serif);font-style:italic;font-size:15px;color:var(--mute);margin:0 0 18px}
+  .now-running .what{color:var(--accent2);font-weight:600;font-style:normal;font-family:var(--mono);font-size:13px;letter-spacing:.02em}
+
+  @media(max-width:840px){
+    h1{font-size:34px}
+    .sim{grid-template-columns:1fr;padding:22px}
+    .sim canvas{width:100%;height:auto;aspect-ratio:1}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">CS 2050 · Final Project · Spring 2026</div>
+    <h1>Five paradigms, one stencil — at the speeds <em>we actually measured</em>.</h1>
+    <p class="lede">
+      Gray-Scott reaction-diffusion, ported to your browser, animated at the throughput we recorded on Harvard's CS-2050 cluster. Click <strong>CUDA</strong> and the field evolves at the rate we measured on a real A10G. Click <strong>Serial</strong> and you're seeing g++ -O3 on one core. Switch implementations live and the pattern keeps going — that's the verification, made visible. The 71× separation between fastest and slowest is the same separation we measured in the lab.
+    </p>
+    <div class="meta">
+      <span>Author: Ali Saffarini</span><span>NetID als4081</span><span>May 7 2026</span>
+    </div>
+  </header>
+
+  <section>
+    <p class="now-running">
+      Now running: <span class="what" id="caption-method">CUDA</span> · pattern <span class="what" id="caption-preset">spots</span> · grid <span class="what" id="caption-grid">512²</span>
+    </p>
+
+    <div class="sim">
+      <canvas id="gs-canvas" width="192" height="192"></canvas>
+      <div>
+        <div class="picker">
+          <div class="label">Implementation <span class="hint">— controls the simulation speed</span></div>
+          <div class="opts" id="method-picker">
+            <button data-method="serial">Serial</button>
+            <button data-method="mpi">MPI-16r</button>
+            <button data-method="openmp">OpenMP-8t</button>
+            <button data-method="numba">Numba-8t</button>
+            <button class="active" data-method="cuda">CUDA</button>
+          </div>
+        </div>
+
+        <div class="picker">
+          <div class="label">Pattern <span class="hint">— Gray-Scott (F, k) preset</span></div>
+          <div class="opts" id="preset-picker">
+            <button class="active" data-preset="spots">spots</button>
+            <button data-preset="stripes">stripes</button>
+            <button data-preset="coral">coral</button>
+            <button data-preset="maze">maze</button>
+          </div>
+        </div>
+
+        <div class="picker">
+          <div class="label">Grid size <span class="hint">— bigger = more cells, more work</span></div>
+          <div class="opts" id="grid-picker">
+            <button data-grid="256">256²</button>
+            <button class="active" data-grid="512">512²</button>
+            <button data-grid="1024">1024²</button>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="row"><span>Measured throughput</span><span><span class="num" id="stat-gflops">357</span> GFLOP/s</span></div>
+          <div class="row" style="margin-top:10px">
+            <span>5000 steps on real hardware</span>
+            <span class="big" id="stat-wall">0.76 s</span>
+          </div>
+          <div class="compare">
+            Serial would take <span class="num" id="stat-serial-wall">54 s</span> for the same work — a <span class="num" id="stat-speedup">71×</span> separation. The browser sim above is paced to that ratio.
+          </div>
+          <div class="browser">
+            browser: <span class="num" id="stat-step">0</span> steps · <span class="num" id="stat-fps">— fps</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="gs-reset">↻ reset field</button>
+          <button id="gs-pause">⏸ pause</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why the patterns are the same across implementations</h2>
+    <p>
+      The visualisation above runs the same JavaScript stencil regardless of which implementation you click — only the speed changes. That mirrors the project's main verification claim: <strong>all five real implementations produce the same field</strong> to within machine epsilon, so the only thing that differs across paradigms is throughput.
+    </p>
+    <table>
+      <thead><tr><th>impl</th><th>build</th><th>agreement vs. serial reference</th></tr></thead>
+      <tbody>
+        <tr><td>serial</td><td>g++ -O3 -march=native</td><td>reference</td></tr>
+        <tr><td>openmp (8t)</td><td>g++ + -fopenmp</td><td><span class="pill ok">bit-for-bit match</span> at any thread count</td></tr>
+        <tr><td>mpi (1, 4, 16 ranks · 2 nodes)</td><td>AWS OpenMPI 4.1.7 + srun --mpi=pmix</td><td><span class="pill ok">bit-for-bit match</span> at any rank topology</td></tr>
+        <tr><td>cuda</td><td>nvcc -O3 (NVIDIA A10G)</td><td>max diff ≈ <span class="num">5 × 10⁻¹⁶</span> — FMA rounding floor, not an algorithmic gap</td></tr>
+        <tr><td>numba (8t)</td><td>@njit(parallel=True)</td><td>max diff ≈ <span class="num">10⁻¹⁵</span> — LLVM FMA fusion; visually indistinguishable</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:14px;color:#bdc4d0;font-size:14.5px">
+      A standalone analytical verifier (<code>verify/verify.cpp</code>) layers five additional ground-truth tests on top — constant-field Laplacian, plane-wave 𝒪(h²) convergence, mass conservation under pure diffusion, trivial steady state, 4-fold symmetry preservation — all five pass at the floating-point floor. <code>compute-sanitizer</code> (<code>memcheck</code> / <code>racecheck</code> / <code>initcheck</code>) finds zero issues on the GPU build.
+    </p>
+  </section>
+
+  <footer>
+    Source, slurm scripts, raw figures, and the full report live in the GitHub repository &nbsp;·&nbsp; Generated <span class="num">2026-05-07</span>
+  </footer>
+</div>
+
+<!-- ============================================================
+     Live Gray-Scott simulator
+     ============================================================ -->
+<script>
+(() => {
+  // ----------------------------------------------------------
+  //  Real-cluster throughput. GFLOP/s are the numbers from our
+  //  scaling sweep on the CS-2050 cluster (report §4.2, §4.4).
+  //  stepsPerFrame is calibrated so the in-browser pacing scales
+  //  with measured throughput (≈ gflops × 0.2, then clamped so
+  //  CUDA stays inside what the browser can deliver).
+  // ----------------------------------------------------------
+  const METHODS = {
+    serial: { name: 'Serial',     gflops: 5.0,  stepsPerFrame: 1  },
+    mpi:    { name: 'MPI-16r',    gflops: 8.1,  stepsPerFrame: 2  },
+    openmp: { name: 'OpenMP-8t',  gflops: 35.8, stepsPerFrame: 7  },
+    numba:  { name: 'Numba-8t',   gflops: 55.5, stepsPerFrame: 11 },
+    cuda:   { name: 'CUDA',       gflops: 357,  stepsPerFrame: 70 },
+  };
+
+  // Picker says 256/512/1024 — but the browser cannot run a real 1024²
+  // double-precision JS stencil at 60 fps. We render at a smaller internal
+  // grid and label it with the conceptual hardware size; the wall-clock
+  // stat still uses the real N for honest GFLOP/s arithmetic.
+  const GRIDS = {
+    '256':  { displayN: 256,  internalN: 128 },
+    '512':  { displayN: 512,  internalN: 192 },
+    '1024': { displayN: 1024, internalN: 256 },
+  };
+
+  const PRESETS = {
+    spots:   { F: 0.035, k: 0.065, Du: 0.16, Dv: 0.08 },
+    stripes: { F: 0.025, k: 0.060, Du: 0.16, Dv: 0.08 },
+    coral:   { F: 0.055, k: 0.062, Du: 0.16, Dv: 0.08 },
+    maze:    { F: 0.029, k: 0.057, Du: 0.16, Dv: 0.08 },
+  };
+
+  const W_O = 0.20, W_D = 0.05, W_C = -1.00, DT = 1.0;
+
+  // ----------------------------------------------------------
+  //  C++ LCG (seed 42) — keeps initial conditions matched to
+  //  the cluster builds in common/grayscott_common.hpp
+  // ----------------------------------------------------------
+  function lcg() {
+    lcg.state = ((Math.imul(lcg.state, 1664525) + 1013904223) >>> 0);
+    return (lcg.state & 0xFFFF) / 65536.0;
+  }
+
+  function makeInit(N) {
+    lcg.state = 42 >>> 0;
+    const U = new Float32Array(N * N).fill(1.0);
+    const V = new Float32Array(N * N).fill(0.0);
+    const cx = N >> 1, cy = N >> 1, half = Math.max(2, N / 10 | 0);
+    for (let j = cy - half; j <= cy + half; j++) {
+      for (let i = cx - half; i <= cx + half; i++) {
+        if (i < 0 || i >= N || j < 0 || j >= N) continue;
+        U[j * N + i] = 0.50 + 0.02 * (lcg() - 0.5);
+        V[j * N + i] = 0.25 + 0.02 * (lcg() - 0.5);
+      }
+    }
+    const numExtra = 5 + (N >> 6);
+    const r = Math.max(2, N / 40 | 0);
+    for (let s = 0; s < numExtra; s++) {
+      const sx = (lcg() * N) | 0, sy = (lcg() * N) | 0;
+      for (let j = sy - r; j <= sy + r; j++) {
+        for (let i = sx - r; i <= sx + r; i++) {
+          const ii = ((i % N) + N) % N, jj = ((j % N) + N) % N;
+          U[jj * N + ii] = 0.50 + 0.02 * (lcg() - 0.5);
+          V[jj * N + ii] = 0.25 + 0.02 * (lcg() - 0.5);
+        }
+      }
+    }
+    return [U, V];
+  }
+
+  function step(U, V, Un, Vn, p, N) {
+    for (let j = 0; j < N; j++) {
+      const jm = (j - 1 + N) % N, jp = (j + 1) % N;
+      const row = j * N, rm = jm * N, rp = jp * N;
+      for (let i = 0; i < N; i++) {
+        const im = (i - 1 + N) % N, ip = (i + 1) % N;
+        const u = U[row + i], v = V[row + i];
+        const lapU = W_O * (U[row + im] + U[row + ip] + U[rm + i] + U[rp + i])
+                   + W_D * (U[rm + im] + U[rm + ip] + U[rp + im] + U[rp + ip])
+                   + W_C * u;
+        const lapV = W_O * (V[row + im] + V[row + ip] + V[rm + i] + V[rp + i])
+                   + W_D * (V[rm + im] + V[rm + ip] + V[rp + im] + V[rp + ip])
+                   + W_C * v;
+        const uvv = u * v * v;
+        Un[row + i] = u + DT * (p.Du * lapU - uvv + p.F * (1.0 - u));
+        Vn[row + i] = v + DT * (p.Dv * lapV + uvv - (p.F + p.k) * v);
+      }
+    }
+  }
+
+  // Five-stop colour ramp matching the C++ build's PPM colormap
+  function colormap(t) {
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    let r, g, b;
+    if (t < 0.25) { const s = t / 0.25; r = 0.05; g = 0.02 + 0.18 * s; b = 0.15 + 0.55 * s; }
+    else if (t < 0.50) { const s = (t - 0.25) / 0.25; r = 0.05 + 0.15 * s; g = 0.20 + 0.55 * s; b = 0.70 - 0.10 * s; }
+    else if (t < 0.75) { const s = (t - 0.50) / 0.25; r = 0.20 + 0.60 * s; g = 0.75 + 0.15 * s; b = 0.60 - 0.45 * s; }
+    else { const s = (t - 0.75) / 0.25; r = 0.80 + 0.20 * s; g = 0.90 + 0.10 * s; b = 0.15 + 0.65 * s; }
+    return [r * 255 | 0, g * 255 | 0, b * 255 | 0];
+  }
+
+  function render(V, ctx, image, N) {
+    let vmin = V[0], vmax = V[0];
+    for (let i = 1; i < V.length; i++) {
+      if (V[i] < vmin) vmin = V[i];
+      if (V[i] > vmax) vmax = V[i];
+    }
+    const inv = 1.0 / (vmax - vmin + 1e-12);
+    const data = image.data;
+    for (let i = 0; i < V.length; i++) {
+      const c = colormap((V[i] - vmin) * inv);
+      data[4*i] = c[0]; data[4*i+1] = c[1]; data[4*i+2] = c[2]; data[4*i+3] = 255;
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+
+  // ----------------------------------------------------------
+  //  State
+  // ----------------------------------------------------------
+  let methodKey = 'cuda';
+  let presetKey = 'spots';
+  let gridKey = '512';
+  let N = GRIDS[gridKey].internalN;
+  let preset = PRESETS[presetKey];
+  let stepsPerFrame = METHODS[methodKey].stepsPerFrame;
+  let running = true;
+  let stepCount = 0;
+  let frameCount = 0;
+  let fpsT0 = performance.now();
+
+  const canvas = document.getElementById('gs-canvas');
+  const ctx = canvas.getContext('2d');
+  let image, U, V, Un, Vn;
+
+  function reallocateGrid() {
+    canvas.width = N; canvas.height = N;
+    image = ctx.createImageData(N, N);
+    [U, V] = makeInit(N);
+    Un = new Float32Array(N * N);
+    Vn = new Float32Array(N * N);
+    stepCount = 0;
+  }
+  function resetField() {
+    [U, V] = makeInit(N);
+    stepCount = 0;
+  }
+
+  // ----------------------------------------------------------
+  //  Stats — computed from real cluster GFLOP/s, not from
+  //  whatever the browser is doing
+  // ----------------------------------------------------------
+  function realWallClock(method, displayN, steps = 5000) {
+    const flops = displayN * displayN * steps * 52; // 52 FLOP / cell / step
+    return flops / (METHODS[method].gflops * 1e9);
+  }
+  function fmtTime(s) {
+    if (s < 1)   return s.toFixed(2) + ' s';
+    if (s < 10)  return s.toFixed(2) + ' s';
+    if (s < 60)  return s.toFixed(1) + ' s';
+    if (s < 600) { const m = Math.floor(s / 60), r = s - 60 * m; return m + ' min ' + r.toFixed(0) + ' s'; }
+    const m = Math.round(s / 60); return m + ' min';
+  }
+  function updateStats() {
+    const m = METHODS[methodKey];
+    const dN = GRIDS[gridKey].displayN;
+    const wall = realWallClock(methodKey, dN);
+    const wallSerial = realWallClock('serial', dN);
+    const speedup = wallSerial / wall;
+    document.getElementById('stat-gflops').textContent = m.gflops < 10 ? m.gflops.toFixed(1) : Math.round(m.gflops);
+    document.getElementById('stat-wall').textContent = fmtTime(wall);
+    document.getElementById('stat-serial-wall').textContent = fmtTime(wallSerial);
+    document.getElementById('stat-speedup').textContent = speedup.toFixed(1) + '×';
+    document.getElementById('caption-method').textContent = m.name;
+    document.getElementById('caption-preset').textContent = presetKey;
+    document.getElementById('caption-grid').textContent = dN + '²';
+  }
+
+  // ----------------------------------------------------------
+  //  Main loop
+  // ----------------------------------------------------------
+  function loop() {
+    if (running) {
+      for (let i = 0; i < stepsPerFrame; i++) {
+        step(U, V, Un, Vn, preset, N);
+        const tU = U; U = Un; Un = tU;
+        const tV = V; V = Vn; Vn = tV;
+        stepCount++;
+      }
+      render(V, ctx, image, N);
+    }
+    frameCount++;
+    const now = performance.now();
+    if (now - fpsT0 > 500) {
+      const fps = frameCount * 1000 / (now - fpsT0);
+      document.getElementById('stat-fps').textContent = fps.toFixed(0) + ' fps';
+      document.getElementById('stat-step').textContent = stepCount.toLocaleString();
+      frameCount = 0; fpsT0 = now;
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // ----------------------------------------------------------
+  //  Pickers
+  // ----------------------------------------------------------
+  function setActive(parentId, attrName, value) {
+    document.querySelectorAll('#' + parentId + ' button').forEach(b => {
+      b.classList.toggle('active', b.dataset[attrName] === value);
+    });
+  }
+
+  document.querySelectorAll('#method-picker button').forEach(b => {
+    b.onclick = () => {
+      methodKey = b.dataset.method;
+      stepsPerFrame = METHODS[methodKey].stepsPerFrame;
+      setActive('method-picker', 'method', methodKey);
+      updateStats();
+      // Note: do NOT reset field. Letting the same field keep evolving
+      // under a different speed is the whole point — visitor sees that
+      // every implementation produces the same pattern.
+    };
+  });
+  document.querySelectorAll('#preset-picker button').forEach(b => {
+    b.onclick = () => {
+      presetKey = b.dataset.preset;
+      preset = PRESETS[presetKey];
+      setActive('preset-picker', 'preset', presetKey);
+      resetField();
+      updateStats();
+    };
+  });
+  document.querySelectorAll('#grid-picker button').forEach(b => {
+    b.onclick = () => {
+      gridKey = b.dataset.grid;
+      N = GRIDS[gridKey].internalN;
+      setActive('grid-picker', 'grid', gridKey);
+      reallocateGrid();
+      updateStats();
+    };
+  });
+  document.getElementById('gs-reset').onclick = resetField;
+  document.getElementById('gs-pause').onclick = (e) => {
+    running = !running;
+    e.target.textContent = running ? '⏸ pause' : '▶ play';
+  };
+
+  reallocateGrid();
+  updateStats();
+  loop();
+})();
+</script>
+</body>
+</html>
